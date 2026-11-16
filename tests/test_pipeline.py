@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from conftest import make_paper
 
-from paper_feed.__main__ import decide_window, unique_note_path
+from paper_feed.__main__ import decide_window, unique_note_path, week_label
 from paper_feed.config import Config, OutputConfig
 from paper_feed.fetch import collect
 from paper_feed.models import Assessment, Paper
@@ -151,10 +151,22 @@ def test_render_without_summary() -> None:
 
 
 def test_unique_note_path(tmp_path: Path) -> None:
-    today = date(2026, 11, 16)
-    first = unique_note_path(tmp_path, today)
+    first = unique_note_path(tmp_path, "2026-W46")
+    assert first.name == "2026-W46.md"
     first.write_text("x", encoding="utf-8")
-    assert unique_note_path(tmp_path, today).name == "2026-11-16-2.md"
+    assert unique_note_path(tmp_path, "2026-W46").name == "2026-W46-2.md"
+
+
+@pytest.mark.parametrize(
+    ("until", "label"),
+    [
+        (date(2026, 11, 16), "2026-W46"),  # 月曜に実行 → 前の週
+        (date(2026, 11, 18), "2026-W47"),  # 週の途中で手動実行 → その週
+        (date(2027, 1, 4), "2026-W53"),  # 年をまたぐ週は ISO の年で数える
+    ],
+)
+def test_week_label(until: date, label: str) -> None:
+    assert week_label(until) == label
 
 
 def test_summary_roundtrip_and_payload(tmp_path: Path) -> None:
@@ -219,7 +231,7 @@ def test_long_title_keeps_counts() -> None:
 
 
 def test_load_summary_without_top(tmp_path: Path) -> None:
-    # top を追加する前に書かれた latest.json も読めること
+    # top のない latest.json も読めること
     path = tmp_path / "latest.json"
     path.write_text(
         json.dumps(

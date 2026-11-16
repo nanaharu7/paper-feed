@@ -21,7 +21,7 @@ from paper_feed.notify import (
 )
 from paper_feed.render import group, render
 from paper_feed.sources import new_session
-from paper_feed.state import load_state, save_state
+from paper_feed.state import State, load_state, save_state
 from paper_feed.summarize import assess, make_backend
 
 log = logging.getLogger("paper_feed")
@@ -39,11 +39,20 @@ def decide_window(today: date, last_run: date | None, lookback_days: int) -> tup
     return since, today
 
 
-def unique_note_path(directory: Path, today: date) -> Path:
-    path = directory / f"{today.isoformat()}.md"
+def week_label(until: date) -> str:
+    """まとめた週の ISO 週番号（例: 2026-W46）。
+
+    月曜に実行すると前の週の分をまとめることになるため、実行日の前日が属する週を使う。
+    """
+    year, week, _ = (until - timedelta(days=1)).isocalendar()
+    return f"{year}-W{week:02d}"
+
+
+def unique_note_path(directory: Path, stem: str) -> Path:
+    path = directory / f"{stem}.md"
     n = 2
     while path.exists():
-        path = directory / f"{today.isoformat()}-{n}.md"
+        path = directory / f"{stem}-{n}.md"
         n += 1
     return path
 
@@ -53,10 +62,19 @@ def cmd_run(args: argparse.Namespace) -> int:
     config = load_config(root / args.config)
     today: date = args.today or date.today()
     state = load_state(root / STATE_FILE)
-    since, until = decide_window(today, state.last_run, config.lookback_days)
+
+    # --since を指定したときは、その期間だけを一度きりで処理する（週次の記録は変えない）
+    adhoc = args.since is not None
+    if adhoc:
+        since, until = args.since, args.until or today
+        stem = f"{since.isoformat()}_{until.isoformat()}"
+        log.info("任意期間で実行します（処理済みの論文も含め、週次の記録は更新しません）")
+    else:
+        since, until = decide_window(today, state.last_run, config.lookback_days)
+        stem = week_label(until)
     log.info("取得期間: %s 〜 %s", since, until)
 
-    papers = collect(config, new_session(), since, until, state)
+    papers = collect(config, new_session(), since, until, State() if adhoc else state)
     log.info("新着候補: %d 件", len(papers))
     if args.fetch_only:
         for p in papers:
@@ -69,17 +87,18 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     note_rel: str | None = None
     if papers:
-        note_path = unique_note_path(root / config.output.dir, today)
+        note_path = unique_note_path(root / config.output.dir, stem)
         note_path.parent.mkdir(parents=True, exist_ok=True)
         note_path.write_text(render(grouped, since, until, summarized), encoding="utf-8")
         note_rel = note_path.relative_to(root).as_posix()
         log.info("書き出し: %s", note_rel)
 
-    # ノートを書けた後で処理済みにする（途中で失敗したら次回やり直せるように）
-    state.mark_seen([p.id for p in papers], today)
-    state.prune(today)
-    state.last_run = today
-    save_state(root / STATE_FILE, state)
+    if not adhoc:
+        # ノートを書けた後で処理済みにする（途中で失敗したら次回やり直せるように）
+        state.mark_seen([p.id for p in papers], today)
+        state.prune(today)
+        state.last_run = today
+        save_state(root / STATE_FILE, state)
 
     save_summary(
         root / SUMMARY_FILE,
@@ -131,12 +150,26 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument(
         "--fetch-only", action="store_true", help="取得結果を表示するだけで、何も書き込まない"
     )
+    run.add_argument(
+        "--since",
+        type=date.fromisoformat,
+        help="任意期間で一度だけ実行するときの開始日（YYYY-MM-DD）",
+    )
+    run.add_argument(
+        "--until", type=date.fromisoformat, help="任意期間の終了日（YYYY-MM-DD、省略すると今日）"
+    )
     run.set_defaults(func=cmd_run)
 
     notify = sub.add_parser("notify", help="直前の run の結果を Discord に送る")
     notify.set_defaults(func=cmd_notify)
 
     args = parser.parse_args(argv)
+    if args.command == "run":
+        today = args.today or date.today()
+        if args.until and not args.since:
+            run.error("--until を使うときは --since も指定してください")
+        if args.since and args.since > (args.until or today):
+            run.error("--since は --until（省略時は今日）以前の日付にしてください")
     # Windows の既定（cp932）だと日本語ログや論文タイトルが化けるため UTF-8 にそろえる
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper):

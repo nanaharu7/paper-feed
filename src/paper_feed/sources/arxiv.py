@@ -1,4 +1,4 @@
-"""arXiv: 情報・物理・数学などのプレプリント。キー不要。"""
+"""arXiv API で論文を検索する。"""
 
 from __future__ import annotations
 

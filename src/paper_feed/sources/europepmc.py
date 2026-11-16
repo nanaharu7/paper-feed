@@ -1,4 +1,4 @@
-"""Europe PMC: PubMed / PMC / bioRxiv / medRxiv などを横断検索できる。キー不要。"""
+"""Europe PMC の REST API で論文を検索する（PubMed・PMC・プレプリントを含む）。"""
 
 from __future__ import annotations
 

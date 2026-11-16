@@ -1,4 +1,4 @@
-"""OpenAlex: 全分野をカバーする。無料の API キー（OPENALEX_API_KEY）を推奨。"""
+"""OpenAlex の works API で論文を検索する。API キーは環境変数 OPENALEX_API_KEY から読む。"""
 
 from __future__ import annotations
 

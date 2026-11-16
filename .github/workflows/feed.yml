@@ -5,6 +5,19 @@ on:
     # 毎週月曜 7:00 JST（日曜 22:00 UTC）
     - cron: "0 22 * * 0"
   workflow_dispatch:
+    inputs:
+      since:
+        description: "任意期間で一度だけ実行するときの開始日 YYYY-MM-DD（空なら通常の週次実行）"
+        required: false
+        default: ""
+      until:
+        description: "任意期間の終了日 YYYY-MM-DD（空なら今日）"
+        required: false
+        default: ""
+      notify:
+        description: "Discord に通知する"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -41,7 +54,14 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
-        run: paper-feed run
+          # 入力値はシェルに直接埋め込まず、環境変数で渡す
+          SINCE: ${{ inputs.since }}
+          UNTIL: ${{ inputs.until }}
+        run: |
+          args=()
+          if [ -n "$SINCE" ]; then args+=(--since "$SINCE"); fi
+          if [ -n "$UNTIL" ]; then args+=(--until "$UNTIL"); fi
+          paper-feed run "${args[@]}"
 
       - name: Commit
         run: |
@@ -56,6 +76,8 @@ jobs:
           fi
 
       - name: Notify Discord
+        # 定期実行では常に通知し、手動実行では notify の選択に従う
+        if: github.event_name != 'workflow_dispatch' || inputs.notify
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: paper-feed notify
