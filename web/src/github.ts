@@ -1,5 +1,6 @@
 const API = "https://api.github.com";
 export const WORKFLOW_FILE = "feed.yml";
+export const QUERIES_WORKFLOW_FILE = "queries.yml";
 
 export class GitHubError extends Error {
   readonly status: number;
@@ -66,7 +67,7 @@ function errorMessage(status: number): string {
     case 401:
       return "トークンが無効か、期限が切れています";
     case 403:
-      return "トークンの権限が足りません（Actions: 読み書き、Contents: 読み取りが必要です）";
+      return "トークンの権限が足りません（Actions と Contents の読み書きが必要です）";
     case 404:
       return "リポジトリまたはファイルが見つかりません（トークンの対象リポジトリも確認してください）";
     case 422:
@@ -116,18 +117,28 @@ export async function checkWorkflow(c: Client): Promise<void> {
 }
 
 /** ワークフローを起動する。GitHub が実行 ID を返したときはそれを返す */
-export async function dispatch(c: Client, ref: string, inputs: RunInputs): Promise<number | null> {
-  const res = await request(c, `${repoPath(c)}/actions/workflows/${WORKFLOW_FILE}/dispatches`, {
+export async function dispatchWorkflow(
+  c: Client,
+  workflowFile: string,
+  ref: string,
+  inputs: Record<string, string>,
+): Promise<number | null> {
+  const res = await request(c, `${repoPath(c)}/actions/workflows/${workflowFile}/dispatches`, {
     method: "POST",
-    body: JSON.stringify({
-      ref,
-      inputs: { since: inputs.since, until: inputs.until, notify: String(inputs.notify) },
-      return_run_details: true,
-    }),
+    body: JSON.stringify({ ref, inputs, return_run_details: true }),
   });
   if (res.status === 204) return null;
   const data: unknown = await res.json();
   return isRecord(data) && typeof data.workflow_run_id === "number" ? data.workflow_run_id : null;
+}
+
+/** 論文の取得（feed.yml）を起動する */
+export async function dispatch(c: Client, ref: string, inputs: RunInputs): Promise<number | null> {
+  return dispatchWorkflow(c, WORKFLOW_FILE, ref, {
+    since: inputs.since,
+    until: inputs.until,
+    notify: String(inputs.notify),
+  });
 }
 
 function parseRun(data: unknown): RunInfo {
@@ -142,10 +153,14 @@ function parseRun(data: unknown): RunInfo {
 }
 
 /** 実行 ID が返らなかったときに、起動時刻以降の手動実行を探す */
-export async function findRunSince(c: Client, startedAt: Date): Promise<number | null> {
+export async function findRunSince(
+  c: Client,
+  startedAt: Date,
+  workflowFile = WORKFLOW_FILE,
+): Promise<number | null> {
   const data = await json(
     c,
-    `${repoPath(c)}/actions/workflows/${WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=5`,
+    `${repoPath(c)}/actions/workflows/${workflowFile}/runs?event=workflow_dispatch&per_page=5`,
   );
   if (!isRecord(data) || !Array.isArray(data.workflow_runs)) return null;
   // 端末と GitHub の時計のずれを見込んで少しさかのぼる
@@ -180,6 +195,36 @@ export async function readFile(c: Client, path: string, ref: string): Promise<st
     "application/vnd.github.raw+json",
   );
   return res.text();
+}
+
+export interface Commit {
+  sha: string;
+  /** commit メッセージの1行目 */
+  message: string;
+  date: string;
+}
+
+/** path を変更した commit を新しい順に返す */
+export async function listCommits(
+  c: Client,
+  path: string,
+  ref: string,
+  perPage = 20,
+): Promise<Commit[]> {
+  const data = await json(
+    c,
+    `${repoPath(c)}/commits?path=${encodeURIComponent(path)}&sha=${encodeURIComponent(ref)}&per_page=${String(perPage)}`,
+  );
+  if (!Array.isArray(data)) return [];
+  return data.filter(isRecord).map((item) => {
+    const commit = isRecord(item.commit) ? item.commit : {};
+    const author = isRecord(commit.author) ? commit.author : {};
+    return {
+      sha: str(item.sha, "sha"),
+      message: str(commit.message, "message").split("\n")[0] ?? "",
+      date: typeof author.date === "string" ? author.date : "",
+    };
+  });
 }
 
 export async function listNotes(c: Client, ref: string, dir = "papers"): Promise<NoteFile[]> {

@@ -151,6 +151,25 @@ input[type="date"]::-webkit-date-and-time-value {
   min-width: 0;
 }
 
+textarea {
+  display: block;
+  width: 100%;
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  resize: vertical;
+}
+
+.status.ok {
+  color: var(--ok);
+}
+
 .toggle {
   display: flex;
   align-items: center;
@@ -340,6 +359,83 @@ input[type="date"]::-webkit-date-and-time-value {
 
 .note ul {
   padding-left: 1.2em;
+}
+
+.card h3 {
+  font-size: 0.9rem;
+  margin: 16px 0 4px;
+  color: var(--muted);
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.query {
+  border-top: 1px solid var(--border);
+  padding: 8px 0;
+}
+
+.query summary {
+  cursor: pointer;
+  list-style-position: outside;
+}
+
+.query .count {
+  display: inline-block;
+  min-width: 4.5em;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.query ul {
+  margin: 6px 0 0;
+  padding-left: 1.2em;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.queries {
+  padding-left: 1.2em;
+}
+
+.history {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.history li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  align-items: center;
+  border-top: 1px solid var(--border);
+  padding: 8px 0;
+}
+
+.history .when {
+  grid-column: 1;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.history .what {
+  grid-column: 1;
+  font-size: 0.9rem;
+}
+
+.history .chip,
+.history .current {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.history .current {
+  font-size: 0.8rem;
+  color: var(--muted);
 }
 
 .help ol {

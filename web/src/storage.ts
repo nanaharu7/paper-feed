@@ -3,9 +3,12 @@ export interface Settings {
   repo: string;
 }
 
+export type RunKind = "feed" | "queries";
+
 export interface PendingRun {
   runId: number;
   repo: string;
+  kind: RunKind;
 }
 
 const SETTINGS_KEY = "paper-feed:settings";
@@ -60,7 +63,7 @@ export function saveSettings(s: Settings | null): void {
 export function loadPendingRun(): PendingRun | null {
   const v = parse(read(PENDING_KEY));
   if (isRecord(v) && typeof v.runId === "number" && typeof v.repo === "string") {
-    return { runId: v.runId, repo: v.repo };
+    return { runId: v.runId, repo: v.repo, kind: v.kind === "queries" ? "queries" : "feed" };
   }
   return null;
 }

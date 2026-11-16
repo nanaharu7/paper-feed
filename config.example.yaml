@@ -1,4 +1,4 @@
-# このファイルを config.yaml という名前でコピーして、自分の興味に合わせて書き換えてください。
+# config.yaml がないときは、queries ワークフローがこのファイルをもとに作ります。
 
 # 興味の説明文。LLM が関連度を判定するときの基準になります。
 # キーワードの羅列より、「何に関心があるか」を文章で具体的に書くほうが精度が上がります。
@@ -6,21 +6,15 @@ interests: |
   （例）大規模言語モデルの推論効率化、特に量子化と蒸留。
   エッジデバイスでの実行や、精度を保ったままモデルを小さくする手法に関心がある。
 
-# 取得元と検索クエリ。クエリの書き方は取得元ごとに異なります（README を参照）。
-# 使わない取得元は丸ごと消してください。
+# 取得元と検索クエリ。通常は queries ワークフローが興味の説明文から作って書き換えます。
+# 手で書く場合、クエリの書き方は取得元ごとに異なります（README を参照）。
 sources:
-  # 全分野。無料の API キー（OPENALEX_API_KEY）の設定を推奨
-  openalex:
+  europepmc:
     queries:
-      - '"model quantization" OR "knowledge distillation"'
-  # 情報・物理・数学など
+      - 'TITLE_ABS:("model quantization" OR "knowledge distillation")'
   arxiv:
     queries:
       - 'abs:"quantization" AND abs:"language model"'
-  # 生命科学・医学（PubMed、bioRxiv などを横断）
-  # europepmc:
-  #   queries:
-  #     - '"your keyword" OR "another keyword"'
 
 # 初回に何日前までさかのぼるか（2回目以降は前回の実行日から取得します）
 lookback_days: 7

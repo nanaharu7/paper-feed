@@ -32,11 +32,7 @@
 
 このページ右上の **Use this template → Create a new repository** から、自分のアカウントにリポジトリを作ります。興味の内容を公開したくなければ private にしてください。
 
-### 2. `config.yaml` を作る
-
-`config.example.yaml` を `config.yaml` という名前でコピーし、`interests`（興味の説明文）と `sources`（取得元と検索クエリ）を書き換えて commit します。
-
-### 3. Secrets を登録する
+### 2. Secrets を登録する
 
 リポジトリの **Settings → Secrets and variables → Actions** に登録します。
 
@@ -45,9 +41,24 @@
 | `CLAUDE_CODE_OAUTH_TOKEN` | `mode: claude-code` | Claude Code をインストールした PC で `claude setup-token` を実行 |
 | `ANTHROPIC_API_KEY` | `mode: api` | [Claude Console](https://platform.claude.com/) で発行 |
 | `DISCORD_WEBHOOK_URL` | Discord に通知したいとき | Discord のチャンネル設定 → 連携サービス → ウェブフック |
-| `OPENALEX_API_KEY` | `openalex` を使うとき（推奨） | [OpenAlex](https://openalex.org/settings/api) で無料発行 |
+| `OPENALEX_API_KEY` | OpenAlex も検索したいとき（人文・社会科学など、Europe PMC と arXiv で拾いにくい分野では推奨） | [OpenAlex](https://openalex.org/settings/api) で無料発行 |
 
 トークンやキーは自分のものを使い、他人と共有しないでください。
+
+### 3. 興味を設定する
+
+何に関心があるかを文章で書くだけで、論文データベースの検索条件（クエリ）は Claude が作ります。YAML を手で書く必要はありません。
+
+- **Web アプリから**: 下の「スマホから実行する」のアプリで「興味」タブを開き、説明文を書いて **保存して検索条件に反映** を押します
+- **GitHub の画面から**: **Actions → queries → Run workflow** で、`interests` に説明文を貼って実行します（入力欄は1行なので、改行は消えます）
+
+どちらも、`config.yaml` がなければ `config.example.yaml` をもとに作り、興味の説明文を書き込んでから、次の手順でクエリを作ります。
+
+1. 使える取得元（Europe PMC と arXiv。`OPENALEX_API_KEY` があれば OpenAlex も）ごとに、Claude がクエリを作る
+2. 直近7日を実際に検索して件数を数え、合計が週20〜150件に入らなければ、件数と拾った論文のタイトルを Claude に見せて作り直す（最大3回）
+3. `config.yaml` の `interests` と `sources` だけを書き換えて commit し、結果を `state/queries.json` に残す
+
+設定を変えるたびに commit されるので、Web アプリの「興味」タブの変更履歴から、前の時点の興味と検索条件に戻せます。GitHub の画面からは、**queries** の `restore` に戻したい commit の SHA を入れて実行します。
 
 ### 4. 動かしてみる
 
@@ -68,18 +79,18 @@
 
 ### スマホから実行する
 
-https://nanaharu7.github.io/paper-feed/ を開くと、期間を選んで実行し、終わったらそのノートを表示できます。過去のノートの一覧も見られます。
+https://nanaharu7.github.io/paper-feed/ を開くと、期間を選んで実行し、終わったらそのノートを表示できます。過去のノートの一覧を見たり、興味の説明文の編集と検索条件への反映、変更履歴からの復元をしたりもできます。
 
 最初に、自分のリポジトリ名（`owner/name`）とトークンを登録します。トークンは [Fine-grained token の作成画面](https://github.com/settings/personal-access-tokens/new) で次のように作ります。
 
 - Repository access: 自分の paper-feed リポジトリだけを選ぶ
-- Permissions: Actions を Read and write、Contents を Read-only
+- Permissions: Actions と Contents を Read and write
 
 トークンはその端末のブラウザにだけ保存され、GitHub の API 以外には送信されません。ホーム画面に追加するとアプリのように開けます。
 
-## 検索クエリの書き方
+## 検索クエリを手で書く
 
-クエリは取得元ごとの書式で、そのまま API に渡されます。キーワード検索で広めに拾い、`interests` をもとに Claude が関連度で絞り込む、という使い方を想定しています。
+通常は queries ワークフローが作るので、手で書く必要はありません。自分で書く場合、クエリは取得元ごとの書式で、そのまま API に渡されます。キーワード検索で広めに拾い、`interests` をもとに Claude が関連度で絞り込む、という使い方を想定しています。
 
 | 取得元 | 書き方の例 | 備考 |
 |---|---|---|
@@ -87,7 +98,7 @@ https://nanaharu7.github.io/paper-feed/ を開くと、期間を選んで実行�
 | `openalex` | `"knowledge distillation" OR "model compression"` | タイトル・要旨・本文を検索。期間は出版日で絞る |
 | `arxiv` | `abs:"quantization" AND cat:cs.LG` | `ti:` タイトル / `abs:` 要旨 / `cat:` カテゴリ |
 
-まず手元で取得結果だけを確認すると、クエリを調整しやすくなります。
+手元で取得結果だけを確認すると、クエリを調整しやすくなります。
 
 ```sh
 pip install .

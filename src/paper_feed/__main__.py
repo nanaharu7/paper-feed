@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import logging
 import os
+import re
+import subprocess
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-from paper_feed.config import ConfigError, load_config
+import yaml
+
+from paper_feed.config import ConfigError, load_config, parse_config
+from paper_feed.configfile import CONFIG_FILE, ensure_config, read_managed, write_managed
 from paper_feed.fetch import collect
 from paper_feed.notify import (
     Highlight,
@@ -19,15 +25,26 @@ from paper_feed.notify import (
     save_summary,
     send,
 )
+from paper_feed.queries import (
+    SCHEMA as QUERY_SCHEMA,
+)
+from paper_feed.queries import (
+    QueryGenerationError,
+    available_sources,
+    generate,
+    probe_report,
+)
 from paper_feed.render import group, render
 from paper_feed.sources import new_session
 from paper_feed.state import State, load_state, save_state
-from paper_feed.summarize import assess, make_backend
+from paper_feed.summarize import SummarizeError, assess, make_backend
 
 log = logging.getLogger("paper_feed")
 
 STATE_FILE = Path("state/seen.json")
 SUMMARY_FILE = Path("state/latest.json")
+QUERIES_REPORT = Path("state/queries.json")
+COMMIT_REF_RE = re.compile(r"^[0-9a-f]{7,40}$")
 # 前回の実行から間が空いても、さかのぼるのはこの日数まで
 MAX_WINDOW_DAYS = 60
 
@@ -139,6 +156,68 @@ def cmd_notify(args: argparse.Namespace) -> int:
     return 0
 
 
+def config_at(root: Path, ref: str) -> str:
+    """指定した commit の時点の config.yaml を読む（Actions の checkout に履歴が必要）"""
+    if not COMMIT_REF_RE.match(ref):
+        raise ConfigError(f"戻す先の commit の指定が正しくありません: {ref}")
+    proc = subprocess.run(
+        ["git", "show", f"{ref}:{CONFIG_FILE}"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if proc.returncode != 0:
+        detail = proc.stderr.strip()[:200]
+        raise ConfigError(f"{ref[:7]} の時点の {CONFIG_FILE} を読めません: {detail}")
+    return proc.stdout
+
+
+def cmd_queries(args: argparse.Namespace) -> int:
+    root: Path = args.root
+    today: date = args.today or date.today()
+    path = ensure_config(root)
+    text = path.read_text(encoding="utf-8")
+    session = new_session()
+
+    if args.restore:
+        interests, sources = read_managed(config_at(root, args.restore))
+        if not interests or not sources:
+            raise ConfigError(f"{args.restore[:7]} の時点の設定に、興味か検索条件がありません")
+        new_text = write_managed(text, interests, sources)
+        report = probe_report(session, sources, today, restored_from=args.restore)
+        message = f"chore(config): {args.restore[:7]} の時点の興味と検索条件に戻す"
+    else:
+        changed = bool(args.interests and args.interests.strip())
+        if changed:
+            text = write_managed(text, interests=args.interests)
+        interests, _ = read_managed(text)
+        if not interests:
+            raise ConfigError("興味の説明文がありません。--interests で指定してください")
+        config = parse_config(yaml.safe_load(text))
+        if config.summarizer.mode == "none":
+            raise ConfigError("summarizer.mode が none のときは、検索条件を自動で作れません")
+        backend = make_backend(config.summarizer, QUERY_SCHEMA)
+        report = generate(interests, backend, session, today, available_sources())
+        new_text = write_managed(text, sources=report.usable_sources())
+        message = (
+            "chore(config): 興味を変更し検索条件に反映する"
+            if changed
+            else "chore(config): 検索条件を作り直す"
+        )
+
+    path.write_text(new_text, encoding="utf-8")
+    report_path = root / QUERIES_REPORT
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        json.dumps(report.to_json(), ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+    )
+    log.info("検索条件を書き込みました（直近7日で合計 %d 件）", report.total)
+    if args.message_file:
+        Path(args.message_file).write_text(message + "\n", encoding="utf-8")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="paper-feed")
     parser.add_argument("--root", type=Path, default=Path("."), help="リポジトリのルート")
@@ -163,7 +242,16 @@ def main(argv: list[str] | None = None) -> int:
     notify = sub.add_parser("notify", help="直前の run の結果を Discord に送る")
     notify.set_defaults(func=cmd_notify)
 
+    queries = sub.add_parser("queries", help="興味の説明文から検索条件を作り、config.yaml に書く")
+    queries.add_argument("--interests", help="興味の説明文を書き換えてから作る")
+    queries.add_argument("--restore", help="指定した commit の時点の興味と検索条件に戻す")
+    queries.add_argument("--today", type=date.fromisoformat, help="実行日を上書きする（テスト用）")
+    queries.add_argument("--message-file", help="commit メッセージを書き出すファイル")
+    queries.set_defaults(func=cmd_queries)
+
     args = parser.parse_args(argv)
+    if args.command == "queries" and args.interests and args.restore:
+        queries.error("--interests と --restore は同時に指定できません")
     if args.command == "run":
         today = args.today or date.today()
         if args.until and not args.since:
@@ -180,6 +268,9 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as e:
         log.error("設定エラー: %s", e)
         return 2
+    except (QueryGenerationError, SummarizeError) as e:
+        log.error("%s", e)
+        return 1
     return code
 
 

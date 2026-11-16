@@ -96,7 +96,7 @@ def parse_results(output: object, papers: list[Paper]) -> list[Assessment]:
     return [by_index[i] for i in range(len(papers))]
 
 
-def claude_code_backend(model: str | None) -> Backend:
+def claude_code_backend(model: str | None, schema: dict[str, Any] = SCHEMA) -> Backend:
     exe = shutil.which("claude")
     if exe is None:
         raise SummarizeError(
@@ -105,7 +105,7 @@ def claude_code_backend(model: str | None) -> Backend:
 
     def call(prompt: str) -> object:
         cmd = [exe, "-p", "--tools", "", "--output-format", "json"]
-        cmd += ["--json-schema", json.dumps(SCHEMA)]
+        cmd += ["--json-schema", json.dumps(schema)]
         if model:
             cmd += ["--model", model]
         # 作業フォルダの CLAUDE.md などを読み込ませないよう、空のフォルダで実行する
@@ -134,7 +134,7 @@ def claude_code_backend(model: str | None) -> Backend:
     return call
 
 
-def api_backend(model: str | None) -> Backend:
+def api_backend(model: str | None, schema: dict[str, Any] = SCHEMA) -> Backend:
     import anthropic
 
     client = anthropic.Anthropic()
@@ -150,7 +150,7 @@ def api_backend(model: str | None) -> Backend:
             max_tokens=16000,
             output_config={
                 "effort": "medium",
-                "format": {"type": "json_schema", "schema": SCHEMA},
+                "format": {"type": "json_schema", "schema": schema},
             },
             messages=[{"role": "user", "content": prompt}],
             **extra,
@@ -165,11 +165,12 @@ def api_backend(model: str | None) -> Backend:
     return call
 
 
-def make_backend(cfg: SummarizerConfig) -> Backend:
+def make_backend(cfg: SummarizerConfig, schema: dict[str, Any] = SCHEMA) -> Backend:
+    """schema に沿った JSON を返す LLM 呼び出しを作る（要約とクエリ作成で共用）"""
     if cfg.mode == "claude-code":
-        return claude_code_backend(cfg.model)
+        return claude_code_backend(cfg.model, schema)
     if cfg.mode == "api":
-        return api_backend(cfg.model)
+        return api_backend(cfg.model, schema)
     raise ValueError(f"要約しないモードでは backend を作りません: {cfg.mode}")
 
 

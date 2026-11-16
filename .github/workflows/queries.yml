@@ -1,0 +1,77 @@
+name: queries
+
+on:
+  workflow_dispatch:
+    inputs:
+      interests:
+        description: "興味の説明文（空なら config.yaml の興味から検索条件を作り直す）"
+        required: false
+        default: ""
+      restore:
+        description: "この commit の時点の興味と検索条件に戻す（通常は空）"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+# 論文の取得（feed.yml）と同じグループにして、config.yaml や state/ への書き込みを1つずつ行う
+concurrency:
+  group: paper-feed
+  cancel-in-progress: false
+
+jobs:
+  queries:
+    # テンプレート元のリポジトリでは動かさない
+    if: github.repository != 'nanaharu7/paper-feed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 復元のために過去の config.yaml を読むので、履歴を全部取得する
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install paper-feed
+        run: pip install ".[api]"
+
+      - name: Install Claude Code
+        if: inputs.restore == ''
+        run: |
+          config=config.yaml
+          if [ ! -f "$config" ]; then config=config.example.yaml; fi
+          if grep -Eq '^\s*mode:\s*claude-code' "$config"; then
+            npm install -g @anthropic-ai/claude-code
+          fi
+
+      - name: Generate queries
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
+          # 入力値はシェルに直接埋め込まず、環境変数で渡す
+          INTERESTS: ${{ inputs.interests }}
+          RESTORE: ${{ inputs.restore }}
+        run: |
+          args=(--message-file "$RUNNER_TEMP/commit-message.txt")
+          if [ -n "$RESTORE" ]; then args+=(--restore "$RESTORE"); fi
+          if [ -n "$INTERESTS" ]; then args+=(--interests "$INTERESTS"); fi
+          paper-feed queries "${args[@]}"
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "変更なし"
+          else
+            git commit -F "$RUNNER_TEMP/commit-message.txt"
+            # 実行中にアプリから興味だけを保存した場合などに備えて、最新に重ねてから push する
+            git pull --rebase
+            git push
+          fi

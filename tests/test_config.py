@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_example_config_is_valid() -> None:
     config = load_config(ROOT / "config.example.yaml")
     assert config.summarizer.mode == "claude-code"
-    assert [s.name for s in config.sources] == ["openalex", "arxiv"]
+    assert [s.name for s in config.sources] == ["europepmc", "arxiv"]
 
 
 def test_defaults() -> None:

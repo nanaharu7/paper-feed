@@ -9,7 +9,7 @@ from datetime import date
 
 import requests
 
-from paper_feed.models import Paper, clean_text
+from paper_feed.models import Paper, Probe, clean_text
 
 BASE_URL = "https://export.arxiv.org/api/query"
 PAGE_SIZE = 100
@@ -20,6 +20,7 @@ REQUEST_INTERVAL = 3.0
 NS = {
     "atom": "http://www.w3.org/2005/Atom",
     "arxiv": "http://arxiv.org/schemas/atom",
+    "opensearch": "http://a9.com/-/spec/opensearch/1.1/",
 }
 
 
@@ -52,6 +53,22 @@ def search(
     # 次のクエリとの間隔も空ける
     time.sleep(REQUEST_INTERVAL)
     return papers[:limit]
+
+
+def probe(session: requests.Session, query: str, since: date, until: date, n: int) -> Probe:
+    params: dict[str, str | int] = {
+        "search_query": build_query(query, since, until),
+        "max_results": n,
+        "sortBy": "submittedDate",
+        "sortOrder": "descending",
+    }
+    res = session.get(BASE_URL, params=params, timeout=TIMEOUT)
+    res.raise_for_status()
+    time.sleep(REQUEST_INTERVAL)
+    root = ET.fromstring(res.text)
+    total = root.find("opensearch:totalResults", NS)
+    titles = tuple(p.title for p in parse_feed(res.text))
+    return Probe(int(total.text) if total is not None and total.text else 0, titles)
 
 
 def _text(entry: ET.Element, path: str) -> str:

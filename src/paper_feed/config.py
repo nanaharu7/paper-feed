@@ -133,7 +133,8 @@ def parse_config(raw: object) -> Config:
 def load_config(path: Path) -> Config:
     if not path.exists():
         raise ConfigError(
-            f"{path} が見つかりません。config.example.yaml をコピーして作ってください"
+            f"{path} が見つかりません。"
+            "queries ワークフローに興味の説明文を入れて実行すると作られます"
         )
     with path.open(encoding="utf-8") as f:
         return parse_config(yaml.safe_load(f))

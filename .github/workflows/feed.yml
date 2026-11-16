@@ -72,6 +72,8 @@ jobs:
             echo "変更なし"
           else
             git commit -m "chore: 新着論文を追加する ($(date -u +%F))"
+            # 実行中にアプリから興味を保存した場合などに備えて、最新に重ねてから push する
+            git pull --rebase
             git push
           fi
 

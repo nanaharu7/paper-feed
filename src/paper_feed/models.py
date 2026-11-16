@@ -42,6 +42,14 @@ class Paper:
 
 
 @dataclass(frozen=True)
+class Probe:
+    """検索条件の当たり具合（件数と、先頭のいくつかのタイトル）"""
+
+    count: int
+    titles: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Assessment:
     paper_id: str
     score: int

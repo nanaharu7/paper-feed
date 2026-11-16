@@ -8,7 +8,7 @@ from typing import Any
 
 import requests
 
-from paper_feed.models import Paper, clean_text
+from paper_feed.models import Paper, Probe, clean_text
 
 BASE_URL = "https://api.openalex.org/works"
 PAGE_SIZE = 100
@@ -16,21 +16,34 @@ TIMEOUT = 60
 SELECT = "id,doi,title,publication_date,abstract_inverted_index,primary_location,authorships"
 
 
-def search(
-    session: requests.Session, query: str, since: date, until: date, limit: int
-) -> list[Paper]:
+def _params(query: str, since: date, until: date, per_page: int) -> dict[str, str | int]:
     # 登録日（from_created_date）での絞り込みは有料プラン限定のため、出版日で絞る
     params: dict[str, str | int] = {
         "search": query,
         "filter": f"from_publication_date:{since.isoformat()},"
         f"to_publication_date:{until.isoformat()}",
-        "per-page": PAGE_SIZE,
+        "per-page": per_page,
         "select": SELECT,
-        "cursor": "*",
     }
     api_key = os.environ.get("OPENALEX_API_KEY")
     if api_key:
         params["api_key"] = api_key
+    return params
+
+
+def probe(session: requests.Session, query: str, since: date, until: date, n: int) -> Probe:
+    res = session.get(BASE_URL, params=_params(query, since, until, n), timeout=TIMEOUT)
+    res.raise_for_status()
+    data: dict[str, Any] = res.json()
+    titles = tuple(clean_text(w.get("title")) for w in data.get("results", []) if w.get("title"))
+    return Probe(int(data.get("meta", {}).get("count", 0)), titles)
+
+
+def search(
+    session: requests.Session, query: str, since: date, until: date, limit: int
+) -> list[Paper]:
+    params = _params(query, since, until, PAGE_SIZE)
+    params["cursor"] = "*"
 
     papers: list[Paper] = []
     while len(papers) < limit:

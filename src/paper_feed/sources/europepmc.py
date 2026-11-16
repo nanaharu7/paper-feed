@@ -7,7 +7,7 @@ from typing import Any
 
 import requests
 
-from paper_feed.models import Paper, clean_text
+from paper_feed.models import Paper, Probe, clean_text
 
 BASE_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 PAGE_SIZE = 100
@@ -42,6 +42,21 @@ def search(
             break
         cursor = next_cursor
     return papers[:limit]
+
+
+def probe(session: requests.Session, query: str, since: date, until: date, n: int) -> Probe:
+    params: dict[str, str | int] = {
+        "query": build_query(query, since, until),
+        "format": "json",
+        "resultType": "lite",
+        "pageSize": n,
+    }
+    res = session.get(BASE_URL, params=params, timeout=TIMEOUT)
+    res.raise_for_status()
+    data: dict[str, Any] = res.json()
+    results: list[dict[str, Any]] = data.get("resultList", {}).get("result", [])
+    titles = tuple(clean_text(r.get("title")) for r in results if r.get("title"))
+    return Probe(int(data.get("hitCount", 0)), titles)
 
 
 def parse_record(r: dict[str, Any]) -> Paper | None:
