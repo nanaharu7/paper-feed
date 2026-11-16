@@ -14,6 +14,7 @@ from paper_feed.config import ConfigError
 from paper_feed.configfile import ensure_config, read_managed, write_managed
 from paper_feed.models import Probe
 from paper_feed.queries import (
+    Baseline,
     QueryGenerationError,
     available_sources,
     build_prompt,
@@ -72,6 +73,10 @@ class TestConfigFile:
         # sources はブロックごと作り直すため、中のコメントは消えるが値は変わらない
         assert read_managed(write_managed(text, sources=sources)) == (interests, sources)
 
+    def test_normalizes_line_endings_and_blank_lines(self) -> None:
+        out = write_managed(CONFIG, interests="\r\n一行目  \r\n   \r\n二行目\r三行目\n\n")
+        assert read_managed(out)[0] == "一行目\n\n二行目\n三行目"
+
     def test_one_line_interests(self) -> None:
         text = "interests: old\nsources:\n  arxiv:\n    queries: [q]\n"
         out = write_managed(text, interests="a\nb")
@@ -104,15 +109,59 @@ def test_build_prompt_lists_only_available_sources() -> None:
     assert "20〜150" in prompt
 
 
+class TestBaselinePrompt:
+    def _baseline(self, interests: str) -> Baseline:
+        report = probe_report(
+            None,  # type: ignore[arg-type]
+            {"europepmc": ["keep me"]},
+            TODAY,
+            probers={"europepmc": _prober({"keep me": 12})},
+        )
+        return Baseline(interests, report)
+
+    def test_shows_before_text_and_current_queries(self) -> None:
+        prompt = build_prompt("新しい興味", ["europepmc"], [], self._baseline("古い興味"))
+        assert "<before>\n古い興味\n</before>" in prompt
+        assert "`keep me` → 12 件" in prompt
+        assert "文字を一切変えずにそのまま残す" in prompt
+
+    def test_unchanged_interests(self) -> None:
+        prompt = build_prompt("同じ", ["europepmc"], [], self._baseline("同じ"))
+        assert "興味の説明文は変わっていない。" in prompt
+        assert "<before>" not in prompt
+
+    def test_no_baseline_section_without_baseline(self) -> None:
+        assert "今の検索条件" not in build_prompt("興味", ["europepmc"], [])
+
+    def test_generate_passes_baseline_to_every_round(self) -> None:
+        prompts: list[str] = []
+
+        def backend(prompt: str) -> object:
+            prompts.append(prompt)
+            return {"sources": [{"name": "europepmc", "queries": ["small"]}]}
+
+        generate(
+            "新しい興味",
+            backend,
+            None,  # type: ignore[arg-type]
+            TODAY,
+            ["europepmc"],
+            probers={"europepmc": _prober({"small": 1})},
+            baseline=self._baseline("古い興味"),
+        )
+        assert len(prompts) == 3
+        assert all("`keep me` → 12 件" in p for p in prompts)
+
+
 def test_parse_proposal() -> None:
     out = {
         "sources": [
-            {"name": "europepmc", "queries": [" a ", "a", "", "b", "c", "d", "e"]},
+            {"name": "europepmc", "queries": [" a ", "a", "", *"bcdefghij"]},
             {"name": "openalex", "queries": ["x"]},
             {"name": "arxiv", "queries": []},
         ]
     }
-    assert parse_proposal(out, ["europepmc", "arxiv"]) == {"europepmc": ["a", "b", "c", "d"]}
+    assert parse_proposal(out, ["europepmc", "arxiv"]) == {"europepmc": [*"abcdefgh"]}
     with pytest.raises(QueryGenerationError):
         parse_proposal({"sources": []}, ["europepmc"])
 
@@ -230,27 +279,46 @@ class TestCli:
     @pytest.fixture
     def repo(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         (tmp_path / "config.example.yaml").write_text(CONFIG, encoding="utf-8")
+        self.baselines: list[Baseline | None] = []
         monkeypatch.setattr(cli, "generate", self._fake_generate)
         monkeypatch.setattr(cli, "make_backend", lambda cfg, schema: lambda p: {})
         monkeypatch.setattr(
             cli,
             "probe_report",
             lambda session, sources, today, restored_from=None: probe_report(
-                session, sources, today, restored_from, probers={"europepmc": _prober({})}
+                session, sources, today, restored_from, probers={"europepmc": _prober({"q": 7})}
             ),
         )
         return tmp_path
 
-    @staticmethod
     def _fake_generate(
-        interests: str, backend: Any, session: Any, today: date, sources: Any
+        self,
+        interests: str,
+        backend: Any,
+        session: Any,
+        today: date,
+        sources: Any,
+        baseline: Baseline | None = None,
     ) -> Any:
+        self.baselines.append(baseline)
         return probe_report(
             session,
             {"europepmc": [f"q for {interests[:4]}"]},
             today,
             probers={"europepmc": _prober({})},
         )
+
+    def test_regeneration_uses_current_queries_as_baseline(self, repo: Path) -> None:
+        base = ["--root", str(repo), "queries", "--interests"]
+        assert cli.main([*base, "最初の興味"]) == 0
+        # config.yaml を作った最初の回は、例の検索条件を土台にしない
+        assert self.baselines == [None]
+
+        assert cli.main([*base, "次の興味"]) == 0
+        baseline = self.baselines[1]
+        assert baseline is not None
+        assert baseline.interests == "最初の興味"
+        assert baseline.report.sources[0].queries[0].query == "q for 最初の興"
 
     def test_creates_config_and_writes_queries(self, repo: Path) -> None:
         msg = repo / "msg.txt"

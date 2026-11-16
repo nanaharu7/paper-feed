@@ -29,6 +29,7 @@ from paper_feed.queries import (
     SCHEMA as QUERY_SCHEMA,
 )
 from paper_feed.queries import (
+    Baseline,
     QueryGenerationError,
     available_sources,
     generate,
@@ -176,8 +177,10 @@ def config_at(root: Path, ref: str) -> str:
 def cmd_queries(args: argparse.Namespace) -> int:
     root: Path = args.root
     today: date = args.today or date.today()
+    existed = (root / CONFIG_FILE).exists()
     path = ensure_config(root)
     text = path.read_text(encoding="utf-8")
+    old_interests, old_sources = read_managed(text)
     session = new_session()
 
     if args.restore:
@@ -198,7 +201,15 @@ def cmd_queries(args: argparse.Namespace) -> int:
         if config.summarizer.mode == "none":
             raise ConfigError("summarizer.mode が none のときは、検索条件を自動で作れません")
         backend = make_backend(config.summarizer, QUERY_SCHEMA)
-        report = generate(interests, backend, session, today, available_sources())
+        allowed = available_sources()
+        # 作り直すときは今の検索条件を土台にして、結果が毎回大きく変わらないようにする
+        base_sources = {k: v for k, v in old_sources.items() if k in allowed}
+        baseline = (
+            Baseline(old_interests, probe_report(session, base_sources, today))
+            if existed and old_interests and base_sources
+            else None
+        )
+        report = generate(interests, backend, session, today, allowed, baseline=baseline)
         new_text = write_managed(text, sources=report.usable_sources())
         message = (
             "chore(config): 興味を変更し検索条件に反映する"

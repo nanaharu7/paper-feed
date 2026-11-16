@@ -21,7 +21,7 @@ TARGET_MAX = 150
 MAX_ROUNDS = 3
 WINDOW_DAYS = 7
 SAMPLE_TITLES = 8
-MAX_QUERIES_PER_SOURCE = 4
+MAX_QUERIES_PER_SOURCE = 8
 
 SOURCE_GUIDES = {
     "europepmc": """### europepmc（Europe PMC: PubMed・PMC・bioRxiv・medRxiv など。生命科学・医学）
@@ -115,6 +115,14 @@ class Report:
         return data
 
 
+@dataclass
+class Baseline:
+    """作り直すときの土台にする、変更前の興味の説明文と検索条件（件数つき）"""
+
+    interests: str
+    report: Report
+
+
 def available_sources(env: Mapping[str, str] = os.environ) -> list[str]:
     # OpenAlex はキーなしだと同じ IP の利用者全体で小さな枠を共有するため、Actions では使えない
     names = ["europepmc", "arxiv"]
@@ -123,17 +131,46 @@ def available_sources(env: Mapping[str, str] = os.environ) -> list[str]:
     return names
 
 
+def _queries_text(report: Report) -> list[str]:
+    lines: list[str] = []
+    for s in report.sources:
+        for q in s.queries:
+            status = f"エラー: {q.error}" if q.error else f"{q.count} 件"
+            lines.append(f"- {s.name}: `{q.query}` → {status}")
+            lines += [f"  - {t}" for t in q.titles[:5]]
+    return lines
+
+
+def _baseline_text(baseline: Baseline | None, interests: str) -> str:
+    if baseline is None:
+        return ""
+    parts = ["## 今の検索条件（これを土台にして直す）", ""]
+    if baseline.interests.strip() == interests.strip():
+        parts.append("興味の説明文は変わっていない。")
+    else:
+        parts += ["変更前の興味の説明文:", "<before>", baseline.interests, "</before>"]
+    parts += [
+        "",
+        f"今の検索条件と、直近7日の件数（合計 {baseline.report.total} 件）:",
+        *_queries_text(baseline.report),
+        "",
+        "直し方:",
+        "- 興味の説明文で変わった部分に関係しない検索条件は、文字を一切変えずにそのまま残す",
+        "- 変わった部分に合わせて、検索条件を追加・修正・削除する",
+        "- 説明文が変わっていない場合や、変わった部分が検索の範囲に関係しない場合は、"
+        "件数が目標から外れているときの調整だけを行う",
+        "- 0 件の検索条件も、興味に合っていて今後拾える見込みがあれば残してよい",
+    ]
+    return "\n".join(parts)
+
+
 def _history_text(history: list[Report]) -> str:
     if not history:
         return ""
     parts = ["## これまでの試行（目標に合わなかったので作り直す）"]
     for i, report in enumerate(history, 1):
         parts.append(f"### 試行 {i}: 合計 {report.total} 件")
-        for s in report.sources:
-            for q in s.queries:
-                status = f"エラー: {q.error}" if q.error else f"{q.count} 件"
-                parts.append(f"- {s.name}: `{q.query}` → {status}")
-                parts += [f"  - {t}" for t in q.titles[:5]]
+        parts += _queries_text(report)
     parts.append(
         "件数が目標より少なければ条件をゆるめ、多ければ絞る。拾った論文のタイトルが興味と"
         "ずれていれば、キーワードを見直す。"
@@ -141,7 +178,12 @@ def _history_text(history: list[Report]) -> str:
     return "\n".join(parts)
 
 
-def build_prompt(interests: str, sources: list[str], history: list[Report]) -> str:
+def build_prompt(
+    interests: str,
+    sources: list[str],
+    history: list[Report],
+    baseline: Baseline | None = None,
+) -> str:
     template = (
         resources.files("paper_feed").joinpath("queries_prompt.md").read_text(encoding="utf-8")
     )
@@ -150,6 +192,8 @@ def build_prompt(interests: str, sources: list[str], history: list[Report]) -> s
         source_guides="\n\n".join(SOURCE_GUIDES[name] for name in sources),
         target_min=TARGET_MIN,
         target_max=TARGET_MAX,
+        max_queries=MAX_QUERIES_PER_SOURCE,
+        baseline=_baseline_text(baseline, interests),
         history=_history_text(history),
     )
 
@@ -169,6 +213,14 @@ def parse_proposal(output: object, allowed: list[str]) -> dict[str, list[str]]:
             dict.fromkeys(q.strip() for q in queries if isinstance(q, str) and q.strip())
         )
         proposal[name] = proposal.get(name, []) + cleaned
+    for name, queries in proposal.items():
+        if len(queries) > MAX_QUERIES_PER_SOURCE:
+            log.warning(
+                "%s の検索条件が %d 本あったため、先頭の %d 本だけを使います",
+                name,
+                len(queries),
+                MAX_QUERIES_PER_SOURCE,
+            )
     proposal = {k: v[:MAX_QUERIES_PER_SOURCE] for k, v in proposal.items() if v}
     if not proposal:
         raise QueryGenerationError("クエリが1本も作られませんでした")
@@ -212,9 +264,11 @@ def generate(
     today: date,
     sources: list[str],
     probers: Mapping[str, ProbeFn] = PROBERS,
+    baseline: Baseline | None = None,
 ) -> Report:
     """クエリを作り、件数が目標に入るまで最大 MAX_ROUNDS 回作り直す。
 
+    baseline を渡すと、今の検索条件を土台に、説明文の変更に関係する部分だけを直させる。
     最後まで目標に入らなかった場合は、最も目標に近かった回の結果を返す。
     """
     since, until = today - timedelta(days=WINDOW_DAYS), today
@@ -222,7 +276,8 @@ def generate(
     best: Report | None = None
     for round_no in range(1, MAX_ROUNDS + 1):
         log.info("クエリを作成中（%d 回目）", round_no)
-        proposal = parse_proposal(backend(build_prompt(interests, sources, history)), sources)
+        prompt = build_prompt(interests, sources, history, baseline)
+        proposal = parse_proposal(backend(prompt), sources)
         report = Report(
             created=today.isoformat(),
             since=since.isoformat(),

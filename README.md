@@ -55,6 +55,7 @@
 どちらも、`config.yaml` がなければ `config.example.yaml` をもとに作り、興味の説明文を書き込んでから、次の手順でクエリを作ります。
 
 1. 使える取得元（Europe PMC と arXiv。`OPENALEX_API_KEY` があれば OpenAlex も）ごとに、Claude がクエリを作る
+   - 2回目以降は今の検索条件を土台にし、説明文の変更に関係する部分だけを直す（関係しない検索条件はそのまま残る）
 2. 直近7日を実際に検索して件数を数え、合計が週20〜150件に入らなければ、件数と拾った論文のタイトルを Claude に見せて作り直す（最大3回）
 3. `config.yaml` の `interests` と `sources` だけを書き換えて commit し、結果を `state/queries.json` に残す
 

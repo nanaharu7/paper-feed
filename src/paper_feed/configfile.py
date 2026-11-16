@@ -77,6 +77,15 @@ def _quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def normalize_interests(interests: str) -> str:
+    """改行を LF にそろえ、各行末の空白と前後の空行を除く。
+
+    YAML のブロック形式では空白だけの行を書き戻せないため、書き込む前にそろえておく。
+    """
+    lines = [line.rstrip() for line in re.split(r"\r\n|\r|\n", interests)]
+    return "\n".join(lines).strip()
+
+
 def format_interests(interests: str) -> str:
     body = [f"  {line}" if line.strip() else "" for line in interests.strip().splitlines()]
     return "\n".join(["interests: |", *body])
@@ -98,7 +107,8 @@ def write_managed(
     """指定した項目だけを差し替える。他の行（コメントや空行を含む）はそのまま残す。"""
     out = text
     if interests is not None:
-        if not interests.strip():
+        interests = normalize_interests(interests)
+        if not interests:
             raise ConfigError("興味の説明文が空です")
         out = _replace_block(out, "interests", format_interests(interests))
     if sources is not None:
@@ -107,7 +117,7 @@ def write_managed(
     # 書き換えた結果が設定として正しく読めることと、意図した値になっていることを確かめる
     parse_config(yaml.safe_load(out))
     got_interests, got_sources = read_managed(out)
-    if interests is not None and got_interests != interests.strip():
+    if interests is not None and got_interests != interests:
         raise ConfigError("interests を正しく書き換えられませんでした")
     if sources is not None and got_sources != sources:
         raise ConfigError("sources を正しく書き換えられませんでした")
