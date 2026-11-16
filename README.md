@@ -6,6 +6,7 @@
 - 要約: Claude のサブスク（Pro / Max）、Anthropic API、要約なし、から選べる
 - 出力: `papers/2026-W46.md` のように、ISO 週番号の名前で週ごとのノートを追加
 - 通知: Discord に、その週の注目論文を送る（任意）
+- Web アプリ: スマホから実行して、結果のノートをその場で見られる
 
 ## 出力の例
 
@@ -65,6 +66,17 @@
 
 手元では `paper-feed run --since 2026-10-01 --until 2026-10-31` で同じことができます。
 
+### スマホから実行する
+
+https://nanaharu7.github.io/paper-feed/ を開くと、期間を選んで実行し、終わったらそのノートを表示できます。過去のノートの一覧も見られます。
+
+最初に、自分のリポジトリ名（`owner/name`）とトークンを登録します。トークンは [Fine-grained token の作成画面](https://github.com/settings/personal-access-tokens/new) で次のように作ります。
+
+- Repository access: 自分の paper-feed リポジトリだけを選ぶ
+- Permissions: Actions を Read and write、Contents を Read-only
+
+トークンはその端末のブラウザにだけ保存され、GitHub の API 以外には送信されません。ホーム画面に追加するとアプリのように開けます。
+
 ## 検索クエリの書き方
 
 クエリは取得元ごとの書式で、そのまま API に渡されます。キーワード検索で広めに拾い、`interests` をもとに Claude が関連度で絞り込む、という使い方を想定しています。
@@ -109,7 +121,17 @@ git merge template/main --allow-unrelated-histories
 
 ## 開発
 
+Python:
+
 ```sh
 pip install -e ".[dev]"
 ruff check . && ruff format --check . && mypy && pytest
+```
+
+Web アプリ（`web/`）:
+
+```sh
+cd web
+npm ci
+npm run check && npm run build
 ```
