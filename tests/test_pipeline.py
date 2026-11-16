@@ -12,7 +12,14 @@ from paper_feed.__main__ import decide_window, unique_note_path
 from paper_feed.config import Config, OutputConfig
 from paper_feed.fetch import collect
 from paper_feed.models import Assessment, Paper
-from paper_feed.notify import Highlight, RunSummary, build_payload, load_summary, save_summary
+from paper_feed.notify import (
+    Highlight,
+    RunSummary,
+    build_payload,
+    build_title,
+    load_summary,
+    save_summary,
+)
 from paper_feed.render import group, render
 from paper_feed.state import State, load_state, save_state
 from paper_feed.summarize import SummarizeError, assess, build_prompt, parse_results
@@ -177,3 +184,55 @@ def test_summary_roundtrip_and_payload(tmp_path: Path) -> None:
 def test_payload_when_empty() -> None:
     summary = RunSummary("2026-11-09", "2026-11-16", 0, False, None)
     assert "新着はありません" in build_payload(summary, None)["embeds"][0]["description"]
+
+
+def test_title_includes_top_paper() -> None:
+    top = Highlight("Microcircuit reconfigurations in V1", "https://u", 3, "")
+
+    # 関連ありが1件だけ（タイトルに出す論文のみ）
+    only = RunSummary("2026-11-09", "2026-11-16", 4, True, None, related_count=1, top=top)
+    assert build_title(only) == (
+        "新着論文 11/9〜11/16｜Microcircuit reconfigurations in V1（全4件）"
+    )
+
+    # 注目1件 + 関連あり2件 → ほか関連2件
+    h = Highlight("Top", "https://t", 5, "")
+    many = RunSummary("2026-11-09", "2026-11-16", 9, True, None, 2, [h], top=h)
+    assert build_title(many) == "新着論文 11/9〜11/16｜Top ほか関連2件（全9件）"
+
+    # 関連する論文がない週
+    none = RunSummary("2026-11-09", "2026-11-16", 3, True, None)
+    assert build_title(none) == "新着論文 11/9〜11/16（全3件）"
+
+    # 新着がない週
+    assert build_title(RunSummary("2026-11-09", "2026-11-16", 0, False, None)) == (
+        "新着論文 11/9〜11/16｜新着なし"
+    )
+
+
+def test_long_title_keeps_counts() -> None:
+    h = Highlight("x" * 400, "u", 5, "")
+    summary = RunSummary("2026-11-09", "2026-11-16", 20, True, None, 4, [h], top=h)
+    title = build_title(summary)
+    assert len(title) == 256
+    assert title.endswith("… ほか関連4件（全20件）")
+
+
+def test_load_summary_without_top(tmp_path: Path) -> None:
+    # top を追加する前に書かれた latest.json も読めること
+    path = tmp_path / "latest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "since": "2026-11-09",
+                "until": "2026-11-16",
+                "total": 0,
+                "summarized": False,
+                "note_path": None,
+                "related_count": 0,
+                "highlights": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert load_summary(path).top is None

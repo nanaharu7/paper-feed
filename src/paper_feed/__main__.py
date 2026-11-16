@@ -95,6 +95,15 @@ def cmd_run(args: argparse.Namespace) -> int:
                 for e in grouped.highlight
                 if e.assessment
             ],
+            top=next(
+                (
+                    Highlight(e.paper.title, e.paper.url, e.assessment.score, e.assessment.summary)
+                    # group() で関連度の高い順に並んでいるので、先頭が最も高い
+                    for e in grouped.highlight + grouped.related
+                    if e.assessment
+                ),
+                None,
+            ),
         ),
     )
     return 0

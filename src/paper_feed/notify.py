@@ -15,6 +15,8 @@ log = logging.getLogger(__name__)
 
 TIMEOUT = 30
 DESCRIPTION_LIMIT = 4000
+# Discord の埋め込みタイトルの上限は256文字
+TITLE_LIMIT = 256
 SUMMARY_LIMIT = 200
 MAX_LISTED = 10
 
@@ -38,6 +40,8 @@ class RunSummary:
     note_path: str | None
     related_count: int = 0
     highlights: list[Highlight] = field(default_factory=list)
+    top: Highlight | None = None
+    """「注目」か「関連あり」の中で最も関連度が高い論文。通知のタイトルに使う"""
 
 
 def save_summary(path: Path, summary: RunSummary) -> None:
@@ -50,7 +54,8 @@ def save_summary(path: Path, summary: RunSummary) -> None:
 def load_summary(path: Path) -> RunSummary:
     raw: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
     highlights = [Highlight(**h) for h in raw.pop("highlights", [])]
-    return RunSummary(**raw, highlights=highlights)
+    top = raw.pop("top", None)
+    return RunSummary(**raw, highlights=highlights, top=Highlight(**top) if top else None)
 
 
 def note_url(note_path: str | None) -> str | None:
@@ -67,8 +72,30 @@ def _shorten(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def _month_day(iso: str) -> str:
+    """2026-11-09 → 11/9"""
+    _, month, day = iso.split("-")
+    return f"{int(month)}/{int(day)}"
+
+
+def build_title(s: RunSummary) -> str:
+    """例: 新着論文 11/9〜11/16｜<最も関連度が高い論文> ほか関連2件（全4件）"""
+    head = f"新着論文 {_month_day(s.since)}〜{_month_day(s.until)}"
+    if s.total == 0:
+        return f"{head}｜新着なし"
+    tail = f"（全{s.total}件）"
+    if not s.top:
+        return head + tail
+    rest = len(s.highlights) + s.related_count - 1
+    if rest > 0:
+        tail = f" ほか関連{rest}件" + tail
+    # 長い論文タイトルだけを切り詰め、件数の部分は必ず残す
+    room = TITLE_LIMIT - len(head) - len("｜") - len(tail)
+    return f"{head}｜{_shorten(s.top.title, room)}{tail}"
+
+
 def build_payload(s: RunSummary, url: str | None) -> dict[str, Any]:
-    title = f"新着論文 {s.since} 〜 {s.until}"
+    title = build_title(s)
     if s.total == 0:
         return {"embeds": [{"title": title, "description": "新着はありませんでした"}]}
 
