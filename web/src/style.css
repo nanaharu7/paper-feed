@@ -136,6 +136,14 @@ input[type="date"] {
   border-radius: 8px;
 }
 
+/* iOS Safari は日付入力に独自の最小幅と見た目を持ち、width: 100% を超えて広がる */
+input[type="date"] {
+  min-width: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 44px;
+}
+
 .toggle {
   display: flex;
   align-items: center;
@@ -202,6 +210,18 @@ input[type="date"] {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+/* グリッドの子要素は既定で中身の最小幅より縮まないため、入力欄がはみ出さないよう 0 にする */
+.dates label {
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .dates {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
 }
 
 .period {
