@@ -1,0 +1,46 @@
+# このファイルを config.yaml という名前でコピーして、自分の興味に合わせて書き換えてください。
+
+# 興味の説明文。LLM が関連度を判定するときの基準になります。
+# キーワードの羅列より、「何に関心があるか」を文章で具体的に書くほうが精度が上がります。
+interests: |
+  （例）大規模言語モデルの推論効率化、特に量子化と蒸留。
+  エッジデバイスでの実行や、精度を保ったままモデルを小さくする手法に関心がある。
+
+# 取得元と検索クエリ。クエリの書き方は取得元ごとに異なります（README を参照）。
+# 使わない取得元は丸ごと消してください。
+sources:
+  # 全分野。無料の API キー（OPENALEX_API_KEY）の設定を推奨
+  openalex:
+    queries:
+      - '"model quantization" OR "knowledge distillation"'
+  # 情報・物理・数学など
+  arxiv:
+    queries:
+      - 'abs:"quantization" AND abs:"language model"'
+  # 生命科学・医学（PubMed、bioRxiv などを横断）
+  # europepmc:
+  #   queries:
+  #     - '"your keyword" OR "another keyword"'
+
+# 初回に何日前までさかのぼるか（2回目以降は前回の実行日から取得します）
+lookback_days: 7
+
+# 1回に LLM に渡す論文の上限。超えた分は新しい順に切り捨てます
+max_papers: 150
+
+summarizer:
+  # claude-code: Claude のサブスクで要約（CLAUDE_CODE_OAUTH_TOKEN が必要）
+  # api:         Anthropic API で要約（ANTHROPIC_API_KEY が必要、従量課金）
+  # none:        要約せず、一覧だけ作る
+  mode: claude-code
+  # 使うモデル。省略すると claude-code はその既定、api は claude-opus-5-5
+  # model: sonnet
+  language: ja
+  # 1回の呼び出しで渡す件数
+  batch_size: 25
+
+output:
+  dir: papers
+  # この関連度以上を「注目」、related_score 以上を「関連あり」に分けます（1〜5）
+  highlight_score: 4
+  related_score: 3
