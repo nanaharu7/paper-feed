@@ -139,9 +139,16 @@ input[type="date"] {
 /* iOS Safari は日付入力に独自の最小幅と見た目を持ち、width: 100% を超えて広がる */
 input[type="date"] {
   min-width: 0;
+  max-width: 100%;
   -webkit-appearance: none;
   appearance: none;
   min-height: 44px;
+}
+
+/* iOS Safari は日付の表示部分を中央寄せにし、独自の最小幅を持つ */
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+  min-width: 0;
 }
 
 .toggle {

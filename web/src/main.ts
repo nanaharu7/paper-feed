@@ -237,10 +237,15 @@ function renderRunTab(container: HTMLElement): void {
 
   const today = new Date();
   const fixed = presetPeriod(preset, today);
-  const sinceInput = h("input", { type: "date", value: custom.since });
-  const untilInput = h("input", { type: "date", value: custom.until });
-  sinceInput.addEventListener("change", () => { custom = { ...custom, since: sinceInput.value }; });
-  untilInput.addEventListener("change", () => { custom = { ...custom, until: untilInput.value }; });
+  // value 属性で入れると iOS の「リセット」がその値に戻すだけになるため、プロパティで設定する
+  const sinceInput = h("input", { type: "date" });
+  const untilInput = h("input", { type: "date" });
+  sinceInput.value = custom.since;
+  untilInput.value = custom.until;
+  for (const event of ["input", "change"]) {
+    sinceInput.addEventListener(event, () => { custom = { ...custom, since: sinceInput.value }; });
+    untilInput.addEventListener(event, () => { custom = { ...custom, until: untilInput.value }; });
+  }
 
   const periodView =
     preset === "custom"
